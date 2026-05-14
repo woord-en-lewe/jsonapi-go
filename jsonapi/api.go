@@ -200,13 +200,8 @@ func (d *Document[K]) HasErrors() bool {
 	return len(d.Errors) > 0
 }
 
-func (d *Document[K]) UnmarshalDataOne() (*Resource, error) {
-	r, err := d.UnmarshalDataOneCustom()
-	return r.(*Resource), err
-}
-
 // UnmarshalDataOne extracts a single resource from the top-level "data".
-func (d *Document[K]) UnmarshalDataOneCustom() (IResource, error) {
+func (d *Document[K]) UnmarshalDataOne() (*K, error) {
 	if d.Data == nil {
 		return nil, nil
 	}
@@ -218,25 +213,15 @@ func (d *Document[K]) UnmarshalDataOneCustom() (IResource, error) {
 	if err := json.Unmarshal(*d.Data, &res); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal single resource data: %w", err)
 	}
-	return res, nil
+	return &res, nil
 }
 
 // UnmarshalDataMany extracts a slice of resources from the top-level "data".
-func (d *Document[K]) UnmarshalDataMany() ([]Resource, error) {
-	r, err := d.UnmarshalDataManyCustom()
-	re := []Resource{}
-	for _,res  := range r {
-		re = append(re, *(res.(*Resource)))
-	}
-	return re, err
-}
-
-// UnmarshalDataMany extracts a slice of resources from the top-level "data".
-func (d *Document[K]) UnmarshalDataManyCustom() ([]IResource, error) {
+func (d *Document[K]) UnmarshalDataMany() ([]K, error) {
 	if d.Data == nil {
 		return nil, nil
 	}
-	var res []IResource
+	var res []K
 	if err := json.Unmarshal(*d.Data, &res); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal resource array data: %w", err)
 	}
@@ -244,14 +229,10 @@ func (d *Document[K]) UnmarshalDataManyCustom() ([]IResource, error) {
 }
 
 // GetIncluded finds a resource in the "included" section matching the given type and ID.
-func (d *Document[K]) GetIncluded(resourceType, id string) *Resource {
-	return d.GetIncludedCustom(resourceType, id).(*Resource)
-}
-
-func (d *Document[K]) GetIncludedCustom(resourceType, id string) IResource {
+func (d *Document[K]) GetIncluded(resourceType, id string) *K {
 	for _, inc := range d.Included {
 		if inc.GetType() == resourceType && inc.GetID() == id {
-			return inc
+			return &inc
 		}
 	}
 	return nil
@@ -284,14 +265,9 @@ func (r *Relationship) UnmarshalMany() ([]ResourceIdentifier, error) {
 	return ris, nil
 }
 
-func (d *Document[K]) FindRelated(parentResource *Resource, relationName string) (*Resource, error) {
-	r, err := d.FindRelatedCustom(parentResource, relationName)
-	return r.(*Resource), err
-}
-
 // FindRelated looks up the actual resource for a specific relationship name
 // inside the "included" array of the parent document.
-func (d *Document[K]) FindRelatedCustom(parentResource IResource, relationName string) (IResource, error) {
+func (d *Document[K]) FindRelated(parentResource K, relationName string) (*K, error) {
 	rel, ok := parentResource.GetRelationship(relationName)
 	if !ok {
 		return nil, errors.New("relationship not found")
