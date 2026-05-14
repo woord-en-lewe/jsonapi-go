@@ -11,7 +11,7 @@ const MediaType = "application/vnd.api+json"
 
 // Document represents the top-level JSON:API document.
 // Reference: Document Structure -> Top Level
-type Document struct {
+type Document[K IResource] struct {
 	JSONAPI *JSONAPIInfo     `json:"jsonapi,omitempty"`
 	Data    *json.RawMessage `json:"data,omitempty"` // Can be Object, Array, or Null
 	Errors  []ErrorObject    `json:"errors,omitempty"`
@@ -19,7 +19,15 @@ type Document struct {
 	Links   *Links           `json:"links,omitempty"`
 
 	// Included represents resources related to the primary data.
-	Included []Resource `json:"included,omitempty"`
+	Included []K `json:"included,omitempty"`
+}
+
+type IResource interface {
+	UnmarshalJSON(data []byte) error
+	GetRelationship(string) (Relationship, bool)
+	GetType() string
+	GetID() string
+	UnmarshalAttributes(v any) error
 }
 
 // Resource represents a resource object.
@@ -32,6 +40,22 @@ type Resource struct {
 	Relationships map[string]Relationship `json:"relationships,omitempty"`
 	Links         *Links                  `json:"links,omitempty"`
 	Meta          Meta                    `json:"meta,omitempty"`
+}
+
+func (R Resource) GetRelationship(Rel string) (rel Relationship, ok bool) {
+	rel, ok = R.Relationships[Rel]
+	return
+}
+func (r Resource) GetType() string { return r.Type }
+func (r Resource) GetID() string   { return r.ID }
+func (r *Resource) UnmarshalJSON(data []byte) error {
+	type Alias Resource
+	aux := &struct {
+		*Alias
+	}{
+		Alias: (*Alias)(r),
+	}
+	return json.Unmarshal(data, &aux)
 }
 
 // ResourceIdentifier represents a resource identifier object (used in linkage).
@@ -82,38 +106,38 @@ type Meta map[string]any
 
 // Links is a map of link names to Link objects.
 type Links struct {
-	Self *Link `json:"self,omitempty"`
-	Related *Link `json:"related,omitempty"`
+	Self        *Link `json:"self,omitempty"`
+	Related     *Link `json:"related,omitempty"`
 	DescribedBy *Link `json:"describedBy,omitempty"`
-	First *Link `json:"first,omitempty"`
-	Last *Link `json:"last,omitempty"`
-	Previous *Link `json:"previous,omitempty"`
-	Next *Link `json:"next,omitempty"`
-	About *Link `json:"about,omitempty"`
-	Type *Link `json:"type,omitempty"`
+	First       *Link `json:"first,omitempty"`
+	Last        *Link `json:"last,omitempty"`
+	Previous    *Link `json:"previous,omitempty"`
+	Next        *Link `json:"next,omitempty"`
+	About       *Link `json:"about,omitempty"`
+	Type        *Link `json:"type,omitempty"`
 }
 
 // Link represents a link which can be a string or an object.
 // Reference: Document Structure -> Links
 type Link struct {
-	HRef string
-	Rel string
+	HRef        string
+	Rel         string
 	DescribedBy *Link
-	Title string
-	Type string
-	HRefLang []string
-	Meta Meta
+	Title       string
+	Type        string
+	HRefLang    []string
+	Meta        Meta
 }
 
 // Fallback to object
 type linkObj struct {
-	HRef string `json:"href"`
-	Rel string `json:"rel,omitempty"`
-	DescribedBy *Link `json:"describedBy,omitempty"`
-	Title string `json:"title,omitempty"`
-	Type string `json:"type,omitempty"`
-	HRefLang json.RawMessage `json:"hreflang,omitempty"`
-	Meta Meta   `json:"meta,omitempty"`
+	HRef        string          `json:"href"`
+	Rel         string          `json:"rel,omitempty"`
+	DescribedBy *Link           `json:"describedBy,omitempty"`
+	Title       string          `json:"title,omitempty"`
+	Type        string          `json:"type,omitempty"`
+	HRefLang    json.RawMessage `json:"hreflang,omitempty"`
+	Meta        Meta            `json:"meta,omitempty"`
 }
 
 // UnmarshalJSON handles the fact that a Link can be a string or an object.
@@ -165,12 +189,17 @@ func (l *Link) UnmarshalJSON(data []byte) error {
 // --- Client Helper Methods ---
 
 // HasErrors returns true if the document contains errors.
-func (d *Document) HasErrors() bool {
+func (d *Document[K]) HasErrors() bool {
 	return len(d.Errors) > 0
 }
 
+func (d *Document[K]) UnmarshalDataOne() (*Resource, error) {
+	r, err := d.UnmarshalDataOneCustom()
+	return r.(*Resource), err
+}
+
 // UnmarshalDataOne extracts a single resource from the top-level "data".
-func (d *Document) UnmarshalDataOne() (*Resource, error) {
+func (d *Document[K]) UnmarshalDataOneCustom() (IResource, error) {
 	if d.Data == nil {
 		return nil, nil
 	}
@@ -178,15 +207,15 @@ func (d *Document) UnmarshalDataOne() (*Resource, error) {
 	if string(*d.Data) == "null" {
 		return nil, nil
 	}
-	var res Resource
+	var res K
 	if err := json.Unmarshal(*d.Data, &res); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal single resource data: %w", err)
 	}
-	return &res, nil
+	return res, nil
 }
 
 // UnmarshalDataMany extracts a slice of resources from the top-level "data".
-func (d *Document) UnmarshalDataMany() ([]Resource, error) {
+func (d *Document[K]) UnmarshalDataMany() ([]Resource, error) {
 	if d.Data == nil {
 		return nil, nil
 	}
@@ -206,10 +235,14 @@ func (r *Resource) UnmarshalAttributes(v any) error {
 }
 
 // GetIncluded finds a resource in the "included" section matching the given type and ID.
-func (d *Document) GetIncluded(resourceType, id string) *Resource {
+func (d *Document[K]) GetIncluded(resourceType, id string) *Resource {
+	return d.GetIncludedCustom(resourceType, id).(*Resource)
+}
+
+func (d *Document[K]) GetIncludedCustom(resourceType, id string) IResource {
 	for _, inc := range d.Included {
-		if inc.Type == resourceType && inc.ID == id {
-			return &inc
+		if inc.GetType() == resourceType && inc.GetID() == id {
+			return inc
 		}
 	}
 	return nil
@@ -242,10 +275,15 @@ func (r *Relationship) UnmarshalMany() ([]ResourceIdentifier, error) {
 	return ris, nil
 }
 
+func (d *Document[K]) FindRelated(parentResource *Resource, relationName string) (*Resource, error) {
+	r, err := d.FindRelatedCustom(parentResource, relationName)
+	return r.(*Resource), err
+}
+
 // FindRelated looks up the actual resource for a specific relationship name
 // inside the "included" array of the parent document.
-func (d *Document) FindRelated(parentResource *Resource, relationName string) (*Resource, error) {
-	rel, ok := parentResource.Relationships[relationName]
+func (d *Document[K]) FindRelatedCustom(parentResource IResource, relationName string) (IResource, error) {
+	rel, ok := parentResource.GetRelationship(relationName)
 	if !ok {
 		return nil, errors.New("relationship not found")
 	}
