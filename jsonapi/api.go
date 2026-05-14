@@ -57,6 +57,13 @@ func (r *Resource) UnmarshalJSON(data []byte) error {
 	}
 	return json.Unmarshal(data, &aux)
 }
+func (r *Resource) UnmarshalAttributes(v any) error {
+	if r.Attributes == nil {
+		return nil
+	}
+	return json.Unmarshal(r.Attributes, v)
+}
+
 
 // ResourceIdentifier represents a resource identifier object (used in linkage).
 // Reference: Document Structure -> Resource Identifier Objects
@@ -216,22 +223,24 @@ func (d *Document[K]) UnmarshalDataOneCustom() (IResource, error) {
 
 // UnmarshalDataMany extracts a slice of resources from the top-level "data".
 func (d *Document[K]) UnmarshalDataMany() ([]Resource, error) {
+	r, err := d.UnmarshalDataManyCustom()
+	re := []Resource{}
+	for _,res  := range r {
+		re = append(re, *(res.(*Resource)))
+	}
+	return re, err
+}
+
+// UnmarshalDataMany extracts a slice of resources from the top-level "data".
+func (d *Document[K]) UnmarshalDataManyCustom() ([]IResource, error) {
 	if d.Data == nil {
 		return nil, nil
 	}
-	var res []Resource
+	var res []IResource
 	if err := json.Unmarshal(*d.Data, &res); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal resource array data: %w", err)
 	}
 	return res, nil
-}
-
-// UnmarshalAttributes unpacks the raw attributes into a provided struct.
-func (r *Resource) UnmarshalAttributes(v any) error {
-	if r.Attributes == nil {
-		return nil
-	}
-	return json.Unmarshal(r.Attributes, v)
 }
 
 // GetIncluded finds a resource in the "included" section matching the given type and ID.
