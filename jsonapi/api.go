@@ -23,7 +23,6 @@ type Document[K IResource] struct {
 }
 
 type IResource interface {
-	UnmarshalJSON(data []byte) error
 	GetRelationship(string) (Relationship, bool)
 	GetType() string
 	GetID() string
@@ -48,16 +47,7 @@ func (R Resource) GetRelationship(Rel string) (rel Relationship, ok bool) {
 }
 func (r Resource) GetType() string { return r.Type }
 func (r Resource) GetID() string   { return r.ID }
-func (r *Resource) UnmarshalJSON(data []byte) error {
-	type Alias Resource
-	aux := &struct {
-		*Alias
-	}{
-		Alias: (*Alias)(r),
-	}
-	return json.Unmarshal(data, &aux)
-}
-func (r *Resource) UnmarshalAttributes(v any) error {
+func (r Resource) UnmarshalAttributes(v any) error {
 	if r.Attributes == nil {
 		return nil
 	}
